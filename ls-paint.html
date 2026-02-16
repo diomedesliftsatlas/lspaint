@@ -1486,6 +1486,7 @@ function drawShapePreview(c, tool, x1, y1, x2, y2, color, fillCol, size, shift) 
       c.lineJoin = 'round';
       roundRectPath(c, lx, ly, w, h, radius);
       if (shapeStyle === 'fill' || shapeStyle === 'both') { c.fillStyle = fillCol; c.fill(); }
+      if (shapeStyle === 'both') { c.strokeStyle = fillCol; c.stroke(); }
       if (shapeStyle === 'stroke' || shapeStyle === 'both') { c.strokeStyle = color; c.stroke(); }
     } else {
       if (shapeStyle === 'fill' || shapeStyle === 'both') { c.fillStyle = fillCol; c.fillRect(lx, ly, w, h); }
@@ -1496,6 +1497,7 @@ function drawShapePreview(c, tool, x1, y1, x2, y2, color, fillCol, size, shift) 
     c.beginPath();
     c.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
     if (shapeStyle === 'fill' || shapeStyle === 'both') { c.fillStyle = fillCol; c.fill(); }
+    if (shapeStyle === 'both') { c.strokeStyle = fillCol; c.stroke(); }
     if (shapeStyle === 'stroke' || shapeStyle === 'both') { c.strokeStyle = color; c.stroke(); }
   } else if (tool === 'polygon') {
     c.lineJoin = 'round';
@@ -1504,7 +1506,6 @@ function drawShapePreview(c, tool, x1, y1, x2, y2, color, fillCol, size, shift) 
     const sides = parseInt(document.getElementById('polySides').value) || 5;
     const innerRatio = parseInt(document.getElementById('polyInnerRatio').value) || 38;
     const isStar = polyMode === 'star';
-    // Rotation: angle from center to mouse
     const angle = Math.atan2(y2 - cy, x2 - cx) + Math.PI / 2;
     c.save();
     c.translate(cx, cy);
@@ -1512,6 +1513,7 @@ function drawShapePreview(c, tool, x1, y1, x2, y2, color, fillCol, size, shift) 
     polyPath(c, 0, 0, radius, sides, isStar, innerRatio);
     c.restore();
     if (shapeStyle === 'fill' || shapeStyle === 'both') { c.fillStyle = fillCol; c.fill(); }
+    if (shapeStyle === 'both') { c.strokeStyle = fillCol; c.stroke(); }
     if (shapeStyle === 'stroke' || shapeStyle === 'both') { c.strokeStyle = color; c.stroke(); }
   }
   c.restore();
