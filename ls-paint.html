@@ -690,7 +690,7 @@ function floodFill(sx, sy, color) {
   const f = hexToRgb(color);
   if (sr === f.r && sg === f.g && sb === f.b && sa === 255) return;
 
-  const match = i => Math.abs(d[i] - sr) <= 64 && Math.abs(d[i+1] - sg) <= 64 && Math.abs(d[i+2] - sb) <= 64 && Math.abs(d[i+3] - sa) <= 64;
+  const match = i => Math.abs(d[i] - sr) <= 200 && Math.abs(d[i+1] - sg) <= 200 && Math.abs(d[i+2] - sb) <= 200 && Math.abs(d[i+3] - sa) <= 200;
   const set = i => { d[i] = f.r; d[i+1] = f.g; d[i+2] = f.b; d[i+3] = 255; };
 
   const stack = [[sx, sy]];
