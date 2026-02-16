@@ -34,8 +34,9 @@ sudo dnf install gtk3-devel webkit2gtk4.1-devel gcc make
 
 ```bash
 git clone https://github.com/tamasczibere/LS-Paint.git
-cd ls-paint
-make ./ls-paint
+cd LS-Paint
+make
+./ls-paint
 ```
 
 ## Keyboard Shortcuts

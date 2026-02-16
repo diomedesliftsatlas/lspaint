@@ -2,6 +2,7 @@
 Name=LS Paint
 Comment=Lightweight image editor
 Exec=ls-paint
+Icon=ls-paint
 Type=Application
 Categories=Graphics;2DGraphics;RasterGraphics;
 Keywords=paint;draw;image;editor;

@@ -24,9 +24,12 @@ clean:
 install: $(APP)
 	install -Dm755 $(APP) $(DESTDIR)$(PREFIX)/bin/$(APP)
 	install -Dm644 ls-paint.html $(DESTDIR)$(PREFIX)/share/ls-paint/ls-paint.html
+	install -Dm644 ls-paint-icon.png $(DESTDIR)$(PREFIX)/share/ls-paint/ls-paint-icon.png
+	install -Dm644 ls-paint-icon.png $(DESTDIR)$(PREFIX)/share/pixmaps/ls-paint.png
 	install -Dm644 $(APP).desktop $(DESTDIR)$(PREFIX)/share/applications/$(APP).desktop
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(APP)
 	rm -rf $(DESTDIR)$(PREFIX)/share/ls-paint
+	rm -f $(DESTDIR)$(PREFIX)/share/pixmaps/ls-paint.png
 	rm -f $(DESTDIR)$(PREFIX)/share/applications/$(APP).desktop

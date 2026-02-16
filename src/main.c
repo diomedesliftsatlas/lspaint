@@ -114,6 +114,30 @@ int main(int argc, char *argv[]) {
     gtk_window_set_default_size(GTK_WINDOW(window), 1280, 860);
     g_signal_connect(window, "destroy", G_CALLBACK(on_destroy), NULL);
 
+    /* Set window icon — try same dir as exe, then installed location */
+    {
+        char exe[4096];
+        ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+        const char *icon_path = NULL;
+        char *local_icon = NULL;
+        if (len > 0) {
+            exe[len] = '\0';
+            local_icon = g_build_filename(dirname(exe), "ls-paint-icon.png", NULL);
+            if (g_file_test(local_icon, G_FILE_TEST_EXISTS)) icon_path = local_icon;
+        }
+        if (!icon_path) {
+            if (g_file_test("/usr/local/share/ls-paint/ls-paint-icon.png", G_FILE_TEST_EXISTS))
+                icon_path = "/usr/local/share/ls-paint/ls-paint-icon.png";
+            else if (g_file_test("/usr/share/pixmaps/ls-paint.png", G_FILE_TEST_EXISTS))
+                icon_path = "/usr/share/pixmaps/ls-paint.png";
+        }
+        if (icon_path) {
+            GdkPixbuf *icon = gdk_pixbuf_new_from_file(icon_path, NULL);
+            if (icon) { gtk_window_set_icon(GTK_WINDOW(window), icon); g_object_unref(icon); }
+        }
+        g_free(local_icon);
+    }
+
     WebKitWebView *webview = WEBKIT_WEB_VIEW(webkit_web_view_new());
 
     /* Intercept Ctrl+V for file clipboard paste */
