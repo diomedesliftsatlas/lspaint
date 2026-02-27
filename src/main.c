@@ -6,7 +6,7 @@
 #include <libgen.h>
 #include <gdk/gdkkeysyms.h>
 
-/* LS Paint 0.3 — Native wrapper
+/* LS Paint 0.5.0 — Native wrapper
  * Loads ls-paint.html from the same directory as the binary
  * into a native GTK + WebKitGTK window. */
 

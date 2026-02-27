@@ -1,5 +1,5 @@
 APP      = ls-paint
-VERSION  = 0.3-dev
+VERSION  = 0.5.0
 PREFIX   = /usr/local
 
 # Detect webkit2gtk version
