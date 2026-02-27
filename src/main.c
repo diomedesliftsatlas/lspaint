@@ -49,6 +49,66 @@ static const char *mime_from_path(const char *path) {
     return NULL;
 }
 
+/* Intercept drag-and-drop: read dropped file URIs, convert to data URI,
+ * and inject into the webview via insertImageFromURI(). */
+static void on_drag_data_received(GtkWidget *widget, GdkDragContext *context,
+    gint x, gint y, GtkSelectionData *sel_data, guint info, guint time, gpointer data)
+{
+    WebKitWebView *webview = WEBKIT_WEB_VIEW(data);
+    gchar **uris = gtk_selection_data_get_uris(sel_data);
+    if (!uris || !uris[0]) {
+        g_strfreev(uris);
+        gtk_drag_finish(context, FALSE, FALSE, time);
+        return;
+    }
+
+    gchar *filepath = g_filename_from_uri(uris[0], NULL, NULL);
+    g_strfreev(uris);
+    if (!filepath) { gtk_drag_finish(context, FALSE, FALSE, time); return; }
+
+    const char *mime = mime_from_path(filepath);
+    if (!mime) { g_free(filepath); gtk_drag_finish(context, FALSE, FALSE, time); return; }
+
+    gchar *contents = NULL;
+    gsize length = 0;
+    if (!g_file_get_contents(filepath, &contents, &length, NULL)) {
+        g_free(filepath);
+        gtk_drag_finish(context, FALSE, FALSE, time);
+        return;
+    }
+    g_free(filepath);
+
+    gchar *base64 = g_base64_encode((guchar *)contents, length);
+    g_free(contents);
+
+    gchar *js = g_strdup_printf(
+        "pasteImageFromURI('data:%s;base64,%s');", mime, base64);
+    g_free(base64);
+
+    webkit_web_view_evaluate_javascript(webview, js, -1, NULL, NULL, NULL, NULL, NULL);
+    g_free(js);
+
+    gtk_drag_finish(context, TRUE, FALSE, time);
+}
+
+static gboolean on_drag_motion(GtkWidget *widget, GdkDragContext *context,
+    gint x, gint y, guint time, gpointer data)
+{
+    gdk_drag_status(context, GDK_ACTION_COPY, time);
+    return TRUE;
+}
+
+static gboolean on_drag_drop(GtkWidget *widget, GdkDragContext *context,
+    gint x, gint y, guint time, gpointer data)
+{
+    GdkAtom target = gtk_drag_dest_find_target(widget, context, NULL);
+    if (target != GDK_NONE) {
+        gtk_drag_get_data(widget, context, target, time);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 /* Intercept Ctrl+V: if GTK clipboard has file URIs pointing to images,
  * read the file, encode as data URI, and inject into the webview. */
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer data) {
@@ -56,6 +116,27 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer dat
         return FALSE;
 
     GtkClipboard *clip = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    WebKitWebView *webview = WEBKIT_WEB_VIEW(data);
+
+    /* Try raw image data first (screenshots, browser copies) */
+    GdkPixbuf *pixbuf = gtk_clipboard_wait_for_image(clip);
+    if (pixbuf) {
+        gchar *buf = NULL;
+        gsize buf_len = 0;
+        if (gdk_pixbuf_save_to_buffer(pixbuf, &buf, &buf_len, "png", NULL, NULL)) {
+            gchar *base64 = g_base64_encode((guchar *)buf, buf_len);
+            g_free(buf);
+            gchar *js = g_strdup_printf(
+                "pasteImageFromURI('data:image/png;base64,%s');", base64);
+            g_free(base64);
+            webkit_web_view_evaluate_javascript(webview, js, -1, NULL, NULL, NULL, NULL, NULL);
+            g_free(js);
+        }
+        g_object_unref(pixbuf);
+        return TRUE;
+    }
+
+    /* Fallback: file URIs */
     gchar **uris = gtk_clipboard_wait_for_uris(clip);
     if (!uris || !uris[0]) {
         g_strfreev(uris);
@@ -84,7 +165,6 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer dat
         "pasteImageFromURI('data:%s;base64,%s');", mime, base64);
     g_free(base64);
 
-    WebKitWebView *webview = WEBKIT_WEB_VIEW(data);
     webkit_web_view_evaluate_javascript(webview, js, -1, NULL, NULL, NULL, NULL, NULL);
     g_free(js);
 
@@ -142,6 +222,20 @@ int main(int argc, char *argv[]) {
 
     /* Intercept Ctrl+V for file clipboard paste */
     g_signal_connect(window, "key-press-event", G_CALLBACK(on_key_press), webview);
+
+    /* Intercept drag-and-drop for image files */
+    {
+        GtkTargetEntry targets[] = { { "text/uri-list", 0, 0 } };
+        gtk_drag_dest_set(GTK_WIDGET(webview), 0,
+            targets, G_N_ELEMENTS(targets),
+            GDK_ACTION_COPY);
+        g_signal_connect(GTK_WIDGET(webview), "drag-motion",
+            G_CALLBACK(on_drag_motion), webview);
+        g_signal_connect(GTK_WIDGET(webview), "drag-drop",
+            G_CALLBACK(on_drag_drop), webview);
+        g_signal_connect(GTK_WIDGET(webview), "drag-data-received",
+            G_CALLBACK(on_drag_data_received), webview);
+    }
 
     /* Build a file:// base URI so relative resources work */
     char *base_uri = g_filename_to_uri(html_path, NULL, NULL);

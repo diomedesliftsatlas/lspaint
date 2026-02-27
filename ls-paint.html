@@ -65,6 +65,7 @@ body{font-family:Segoe UI,Tahoma,sans-serif;font-size:13px;background:var(--bg);
 #workspace{flex:1;overflow:auto;background:var(--workspace);position:relative;display:flex;align-items:flex-start;justify-content:flex-start}
 #canvas-area{position:relative;margin:20px;display:inline-block;flex-shrink:0}
 #canvas{image-rendering:-moz-crisp-edges;image-rendering:-webkit-crisp-edges;image-rendering:pixelated;image-rendering:crisp-edges;background:#fff;cursor:crosshair;display:block;box-shadow:var(--canvas-shadow)}
+#canvas.transparent-bg{background:repeating-conic-gradient(#ccc 0% 25%,#fff 0% 50%) 0 0/16px 16px}
 #overlay{position:absolute;top:0;left:0;pointer-events:none;image-rendering:-moz-crisp-edges;image-rendering:-webkit-crisp-edges;image-rendering:pixelated;image-rendering:crisp-edges}
 .resize-handle{position:absolute;width:8px;height:8px;background:var(--handle);border:1px solid var(--handle-border);z-index:10}
 #resize-se{bottom:-10px;right:-10px;cursor:nwse-resize}
@@ -208,6 +209,8 @@ input[type=color]{position:absolute;visibility:hidden;width:0;height:0}
       <div data-action="rotate-ccw">Rotate 90° CCW</div>
       <div class="sep"></div>
       <div data-action="clear-canvas">Clear Canvas <span class="shortcut">Del</span></div>
+      <div class="sep"></div>
+      <div data-action="toggle-transparent" id="transparent-toggle">☐ Transparent background</div>
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
@@ -242,6 +245,8 @@ input[type=color]{position:absolute;visibility:hidden;width:0;height:0}
           <svg viewBox="0 0 16 16"><path d="M3,12 C3,4 8,2 13,5 C15,8 10,14 6,11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="3 2"/></svg>
           Free-form
         </div>
+        <div class="sep"></div>
+        <div id="sel-transparent-toggle">&#9744; Transparent</div>
       </div>
     </div>
     <button class="tool-btn" data-tool="pencil" title="Pencil (P)">
@@ -389,6 +394,9 @@ input[type=color]{position:absolute;visibility:hidden;width:0;height:0}
     <button id="swap-colors" title="Swap colors (X)">&#8644;</button>
   </div>
   <div class="bar-sep"></div>
+  <span style="font-size:11px;color:var(--text2);margin-right:3px">Canvas:</span>
+  <div id="canvas-color-box" title="Canvas background color" style="width:22px;height:22px;border:1px solid var(--sep);border-radius:3px;cursor:pointer;background:#ffffff"></div>
+  <div class="bar-sep"></div>
   <div id="palette"></div>
   <div class="bar-sep"></div>
   <div id="statusbar">
@@ -407,6 +415,7 @@ input[type=color]{position:absolute;visibility:hidden;width:0;height:0}
       </div>
     </div>
     <div id="zoom-controls">
+      <svg style="width:14px;height:14px;vertical-align:middle;margin-right:2px;opacity:.7" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><line x1="12.5" y1="12.5" x2="18" y2="18"/></svg>
       <button class="zbtn" id="zoomMinus" title="Zoom out 5%">&#8722;</button>
       <span id="stat-zoom">100%</span>
       <button class="zbtn" id="zoomPlus" title="Zoom in 5%">+</button>
@@ -522,6 +531,7 @@ const workspace = document.getElementById('workspace');
 let currentTool = 'pencil';
 let fgColor = '#000000';
 let bgColor = '#ffffff';
+let canvasColor = '#ffffff';
 let brushSize = 2;
 let zoom = 1;
 let shapeStyle = 'stroke'; // stroke, fill, both
@@ -529,6 +539,8 @@ let rectMode = 'sharp'; // 'sharp' or 'rounded'
 let lineStyle = 'solid'; // 'solid', 'dashed', 'dotted'
 let polyMode = 'polygon'; // 'polygon' or 'star'
 let currentFileName = 'image'; // filename without extension
+let transparentBg = false;
+let transparentSelect = false;
 
 // Drawing state
 let isDrawing = false;
@@ -565,6 +577,20 @@ let textActive = false;
 // ============================================================
 // UTILITIES
 // ============================================================
+function fillBackground(c, x, y, w, h) {
+  c.clearRect(x, y, w, h);
+}
+
+function updateCanvasBg() {
+  if (transparentBg) {
+    canvas.classList.add('transparent-bg');
+    canvas.style.background = '';
+  } else {
+    canvas.classList.remove('transparent-bg');
+    canvas.style.background = canvasColor;
+  }
+}
+
 function getCoords(e) {
   const r = canvas.getBoundingClientRect();
   return {
@@ -626,8 +652,7 @@ function resizeCanvas(newW, newH) {
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   canvas.width = newW;
   canvas.height = newH;
-  ctx.fillStyle = bgColor;
-  ctx.fillRect(0, 0, newW, newH);
+  fillBackground(ctx, 0, 0, newW, newH);
   ctx.putImageData(imgData, 0, 0);
   syncOverlay();
   updateSizeStatus();
@@ -690,8 +715,14 @@ function floodFill(sx, sy, color) {
   const f = hexToRgb(color);
   if (sr === f.r && sg === f.g && sb === f.b && sa === 255) return;
 
-  const match = i => Math.abs(d[i] - sr) <= 200 && Math.abs(d[i+1] - sg) <= 200 && Math.abs(d[i+2] - sb) <= 200 && Math.abs(d[i+3] - sa) <= 200;
-  const set = i => { d[i] = f.r; d[i+1] = f.g; d[i+2] = f.b; d[i+3] = 255; };
+  const tol = 32;
+  const visited = new Uint8Array(w * h);
+  const match = i => {
+    const pi = i >> 2;
+    if (visited[pi]) return false;
+    return Math.abs(d[i] - sr) <= tol && Math.abs(d[i+1] - sg) <= tol && Math.abs(d[i+2] - sb) <= tol && Math.abs(d[i+3] - sa) <= tol;
+  };
+  const set = i => { d[i] = f.r; d[i+1] = f.g; d[i+2] = f.b; d[i+3] = 255; visited[i >> 2] = 1; };
 
   const stack = [[sx, sy]];
   while (stack.length) {
@@ -711,6 +742,37 @@ function floodFill(sx, sy, color) {
       x++;
     }
   }
+
+  // Fringe pass: blend fill color into anti-aliased edge pixels
+  // adjacent to the filled region so no background peeks through
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const pi = y * w + x;
+      if (visited[pi]) continue;
+      // Check if any 4-neighbor was filled
+      const hasFilledNeighbor =
+        (x > 0 && visited[pi - 1]) ||
+        (x < w - 1 && visited[pi + 1]) ||
+        (y > 0 && visited[pi - w]) ||
+        (y < h - 1 && visited[pi + w]);
+      if (!hasFilledNeighbor) continue;
+      const i = pi * 4;
+      const a = d[i + 3];
+      // Only touch semi-transparent pixels (anti-aliased edges)
+      // or pixels that are a blend of source and shape color
+      if (a === 0) continue; // fully transparent, already fine
+      if (a < 255) {
+        // Semi-transparent edge pixel: composite fill color under the shape
+        // The pixel has shape color at alpha 'a', we fill behind it
+        const ia = a / 255, oa = 1 - ia;
+        d[i]     = Math.round(d[i] * ia + f.r * oa);
+        d[i + 1] = Math.round(d[i + 1] * ia + f.g * oa);
+        d[i + 2] = Math.round(d[i + 2] * ia + f.b * oa);
+        d[i + 3] = 255;
+      }
+    }
+  }
+
   ctx.putImageData(imageData, 0, 0);
 }
 
@@ -913,9 +975,37 @@ function liftSelection(copyMode) {
   sel.data = ctx.getImageData(sel.x, sel.y, sel.w, sel.h);
   sel.floating = true;
 
+  // Transparent selection: make canvas-colored pixels transparent
+  // Non-transparent selection: bake canvas color into transparent pixels
+  // (must run BEFORE shape masks so baking doesn't undo the mask)
+  const cc = hexToRgb(canvasColor);
+  const d = sel.data.data;
+  if (transparentSelect) {
+    const tol = 30;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] > 0 &&
+          Math.abs(d[i] - cc.r) <= tol &&
+          Math.abs(d[i + 1] - cc.g) <= tol &&
+          Math.abs(d[i + 2] - cc.b) <= tol) {
+        d[i + 3] = 0;
+      }
+    }
+  } else {
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0) {
+        d[i] = cc.r; d[i + 1] = cc.g; d[i + 2] = cc.b; d[i + 3] = 255;
+      } else if (d[i + 3] < 255) {
+        const a = d[i + 3] / 255;
+        d[i]   = Math.round(d[i] * a + cc.r * (1 - a));
+        d[i+1] = Math.round(d[i+1] * a + cc.g * (1 - a));
+        d[i+2] = Math.round(d[i+2] * a + cc.b * (1 - a));
+        d[i+3] = 255;
+      }
+    }
+  }
+
   // Apply ellipse mask: make pixels outside ellipse transparent
   if (selectMode === 'ellipse') {
-    const d = sel.data.data;
     const cx = sel.w / 2, cy = sel.h / 2;
     const rx = sel.w / 2, ry = sel.h / 2;
     for (let py = 0; py < sel.h; py++) {
@@ -930,7 +1020,6 @@ function liftSelection(copyMode) {
 
   // Apply freehand path mask: make pixels outside polygon transparent
   if (selectMode === 'free' && sel.path && sel.path.length > 2) {
-    const d = sel.data.data;
     for (let py = 0; py < sel.h; py++) {
       for (let px = 0; px < sel.w; px++) {
         if (!pointInPolygon(sel.x + px + 0.5, sel.y + py + 0.5, sel.path)) {
@@ -943,14 +1032,14 @@ function liftSelection(copyMode) {
   if (!copyMode) {
     if (selectMode === 'ellipse') {
       ctx.save();
-      ctx.fillStyle = bgColor;
+      ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = 'rgba(0,0,0,1)';
       ctx.beginPath();
       ctx.ellipse(sel.x + sel.w / 2, sel.y + sel.h / 2, sel.w / 2, sel.h / 2, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     } else if (selectMode === 'free' && sel.path && sel.path.length > 2) {
       ctx.save();
-      ctx.fillStyle = bgColor;
+      ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = 'rgba(0,0,0,1)';
       ctx.beginPath();
       ctx.moveTo(sel.path[0].x, sel.path[0].y);
       for (let i = 1; i < sel.path.length; i++) ctx.lineTo(sel.path[i].x, sel.path[i].y);
@@ -958,8 +1047,7 @@ function liftSelection(copyMode) {
       ctx.fill();
       ctx.restore();
     } else {
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(sel.x, sel.y, sel.w, sel.h);
+      fillBackground(ctx, sel.x, sel.y, sel.w, sel.h);
     }
   }
 }
@@ -1016,8 +1104,7 @@ function cropToSelection() {
       const bw = Math.ceil(sel.w * cos + sel.h * sin);
       const bh = Math.ceil(sel.w * sin + sel.h * cos);
       canvas.width = bw; canvas.height = bh;
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, bw, bh);
+      fillBackground(ctx, 0, 0, bw, bh);
       ctx.save();
       ctx.translate(bw / 2, bh / 2);
       ctx.rotate(angle);
@@ -1091,8 +1178,7 @@ function cutSelection() {
     sel = null;
     stopMarch();
   } else {
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(sel.x, sel.y, sel.w, sel.h);
+    fillBackground(ctx, sel.x, sel.y, sel.w, sel.h);
     sel = null;
     stopMarch();
   }
@@ -1662,18 +1748,19 @@ function onCanvasMouseDown(e) {
 
   if (currentTool === 'pencil' || currentTool === 'eraser') {
     saveState();
-    const color = currentTool === 'eraser' ? bgColor : drawColor(e.button);
+    const erasing = currentTool === 'eraser';
+    const color = erasing ? bgColor : drawColor(e.button);
+    ctx.save();
+    if (erasing) { ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = 'rgba(0,0,0,1)'; }
+    else { ctx.fillStyle = color; }
     if (brushSize <= 1) {
-      ctx.fillStyle = color;
       ctx.fillRect(x, y, 1, 1);
     } else {
-      ctx.save();
-      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
+    ctx.restore();
   }
 
   if (currentTool === 'line' || currentTool === 'rect' || currentTool === 'ellipse' || currentTool === 'polygon') {
@@ -1718,8 +1805,11 @@ function onDocMouseMove(e) {
   }
 
   if (currentTool === 'pencil' || currentTool === 'eraser') {
-    const color = currentTool === 'eraser' ? bgColor : drawColor(drawButton);
-    drawLineOnCtx(ctx, lastX, lastY, x, y, color, brushSize);
+    const erasing = currentTool === 'eraser';
+    const color = erasing ? bgColor : drawColor(drawButton);
+    if (erasing) { ctx.save(); ctx.globalCompositeOperation = 'destination-out'; }
+    drawLineOnCtx(ctx, lastX, lastY, x, y, erasing ? 'rgba(0,0,0,1)' : color, brushSize);
+    if (erasing) ctx.restore();
     lastX = x; lastY = y;
     return;
   }
@@ -1976,8 +2066,8 @@ document.addEventListener('keydown', e => {
     else if (sel) { commitSelection(); }
   }
   if (e.key === 'Delete') {
-    if (sel) { saveState(); if (sel.floating) { sel = null; stopMarch(); } else { ctx.fillStyle = bgColor; ctx.fillRect(sel.x, sel.y, sel.w, sel.h); sel = null; stopMarch(); } }
-    else if (!ctrl) { saveState(); ctx.fillStyle = bgColor; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+    if (sel) { saveState(); if (sel.floating) { sel = null; stopMarch(); } else { fillBackground(ctx, sel.x, sel.y, sel.w, sel.h); sel = null; stopMarch(); } }
+    else if (!ctrl) { saveState(); fillBackground(ctx, 0, 0, canvas.width, canvas.height); }
   }
 
   // Tool shortcuts (only when not typing in inputs)
@@ -2051,8 +2141,7 @@ function newCanvas() {
   saveState();
   canvas.width = 800;
   canvas.height = 600;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, 800, 600);
+  fillBackground(ctx, 0, 0, 800, 600);
   sel = null;
   stopMarch();
   syncOverlay();
@@ -2087,7 +2176,18 @@ async function saveFile(format) {
   currentFileName = name;
   updateTitle();
   const mime = format === 'jpg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
-  canvas.toBlob(blob => {
+  let srcCanvas = canvas;
+  if (!(transparentBg && format === 'png')) {
+    // Flatten onto bgColor (canvas pixels are always transparent-bg internally)
+    const tmp = document.createElement('canvas');
+    tmp.width = canvas.width; tmp.height = canvas.height;
+    const tc = tmp.getContext('2d');
+    tc.fillStyle = canvasColor;
+    tc.fillRect(0, 0, tmp.width, tmp.height);
+    tc.drawImage(canvas, 0, 0);
+    srcCanvas = tmp;
+  }
+  srcCanvas.toBlob(blob => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name + '.' + ext;
@@ -2117,22 +2217,39 @@ document.getElementById('fileInput').addEventListener('change', e => {
 // DRAG & DROP
 // ============================================================
 const dropzone = document.getElementById('dropzone');
+let dragCounter = 0;
 
-workspace.addEventListener('dragover', e => {
+workspace.addEventListener('dragenter', e => {
   e.preventDefault();
+  e.stopPropagation();
+  dragCounter++;
   dropzone.style.display = 'flex';
 });
+workspace.addEventListener('dragover', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  e.dataTransfer.dropEffect = 'copy';
+});
 workspace.addEventListener('dragleave', e => {
-  if (!workspace.contains(e.relatedTarget)) dropzone.style.display = 'none';
+  e.preventDefault();
+  e.stopPropagation();
+  dragCounter--;
+  if (dragCounter <= 0) { dragCounter = 0; dropzone.style.display = 'none'; }
 });
 workspace.addEventListener('drop', e => {
   e.preventDefault();
+  e.stopPropagation();
+  dragCounter = 0;
   dropzone.style.display = 'none';
   const files = e.dataTransfer.files;
   if (files.length && files[0].type.startsWith('image/')) {
     insertImage(files[0]);
   }
 });
+
+// Prevent browser from opening dropped files outside workspace
+document.addEventListener('dragover', e => { e.preventDefault(); });
+document.addEventListener('drop', e => { e.preventDefault(); });
 
 // ============================================================
 // IMAGE TRANSFORMS
@@ -2209,7 +2326,12 @@ document.querySelectorAll('.menu-dropdown div[data-action]').forEach(el => {
       case 'flip-v': flipCanvas(false); break;
       case 'rotate-cw': rotateCanvas(true); break;
       case 'rotate-ccw': rotateCanvas(false); break;
-      case 'clear-canvas': saveState(); ctx.fillStyle = bgColor; ctx.fillRect(0, 0, canvas.width, canvas.height); break;
+      case 'clear-canvas': saveState(); fillBackground(ctx, 0, 0, canvas.width, canvas.height); break;
+      case 'toggle-transparent':
+        transparentBg = !transparentBg;
+        document.getElementById('transparent-toggle').textContent = (transparentBg ? '☑' : '☐') + ' Transparent background';
+        updateCanvasBg();
+        break;
     }
   });
 });
@@ -2307,6 +2429,12 @@ document.querySelectorAll('#selectDropMenu div[data-selmode]').forEach(el => {
     }
     setTool('select');
   });
+});
+
+document.getElementById('sel-transparent-toggle').addEventListener('click', e => {
+  e.stopPropagation();
+  transparentSelect = !transparentSelect;
+  e.currentTarget.innerHTML = (transparentSelect ? '\u2611' : '\u2610') + ' Transparent';
 });
 
 document.querySelectorAll('#rectDropMenu div[data-rectmode]').forEach(el => {
@@ -2452,13 +2580,16 @@ customBtn.addEventListener('contextmenu', e => {
 palette.appendChild(customBtn);
 
 document.getElementById('colorPicker').addEventListener('input', e => {
-  if (e.target._target === 'bg') { bgColor = e.target.value; updateColorDisplay(); }
+  if (e.target._target === 'canvas') { canvasColor = e.target.value; updateColorDisplay(); }
+  else if (e.target._target === 'bg') { bgColor = e.target.value; updateColorDisplay(); }
   else setFgColor(e.target.value);
 });
 
 function updateColorDisplay() {
   document.getElementById('fg-color-box').style.background = fgColor;
   document.getElementById('bg-color-box').style.background = bgColor;
+  document.getElementById('canvas-color-box').style.background = canvasColor;
+  updateCanvasBg();
 }
 
 function setFgColor(c) {
@@ -2480,6 +2611,10 @@ document.getElementById('fg-color-box').addEventListener('click', () => {
 document.getElementById('bg-color-box').addEventListener('click', () => {
   const cp = document.getElementById('colorPicker');
   cp.value = bgColor; cp._target = 'bg'; cp.click();
+});
+document.getElementById('canvas-color-box').addEventListener('click', () => {
+  const cp = document.getElementById('colorPicker');
+  cp.value = canvasColor; cp._target = 'canvas'; cp.click();
 });
 document.getElementById('swap-colors').addEventListener('click', () => {
   [fgColor, bgColor] = [bgColor, fgColor];
@@ -2690,8 +2825,7 @@ try { if (localStorage.getItem('paint-dark') === '1') applyDarkMode(true); } cat
 // ============================================================
 // INIT
 // ============================================================
-ctx.fillStyle = '#ffffff';
-ctx.fillRect(0, 0, canvas.width, canvas.height);
+fillBackground(ctx, 0, 0, canvas.width, canvas.height);
 syncOverlay();
 updateColorDisplay();
 updateSizeStatus();
